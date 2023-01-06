@@ -382,6 +382,144 @@ func (d *Decoder) Token() (Token, error) {
 	}
 }
 
+func (d *Decoder) decodeInteger(token *TokenInteger) (int64, error) {
+	return token.Value, nil
+}
+
+func (d *Decoder) decodeString(token *TokenString) (interface{}, error) {
+	// TODO: Is it necessary to copy to a new slice?
+	return token.Value, nil
+}
+
+func (d *Decoder) decodeDictionary(token *TokenDictionaryStart) (map[string]interface{}, error) {
+	dst := map[string]interface{}{}
+
+	isClosed := false
+	isFirstIteration := true
+	for isFirstIteration || !isClosed {
+		isFirstIteration = false
+
+		var (
+			err error
+
+			keyToken   Token
+			valueToken Token
+		)
+
+		keyToken, err = d.Token()
+		if err != nil {
+			return nil, fmt.Errorf("could not read key token: %w", err)
+		}
+
+		if _, ok := keyToken.(*TokenEnd); ok {
+			isClosed = true
+
+			break
+		}
+
+		var key string
+		if parsedKeyToken, ok := keyToken.(*TokenString); ok {
+			key = string(parsedKeyToken.Value)
+		} else {
+			return nil, fmt.Errorf("found non-string dictionary key")
+		}
+
+		valueToken, err = d.Token()
+		if err != nil {
+			return nil, fmt.Errorf("could not read value token: %w", err)
+		}
+
+		if _, ok := valueToken.(*TokenEnd); ok {
+			return nil, fmt.Errorf("unexpected end of dictionary")
+		}
+
+		var parsedValue interface{}
+
+		parsedValue, err = d.decodeAny(valueToken)
+		if err != nil {
+			return nil, fmt.Errorf("could not decode token: %w", err)
+		}
+
+		dst[key] = parsedValue
+	}
+
+	if !isClosed {
+		return nil, fmt.Errorf("unexpected end of dictionary")
+	}
+
+	return dst, nil
+}
+
+func (d *Decoder) decodeList(token *TokenListStart) ([]interface{}, error) {
+	dst := []interface{}{}
+
+	isClosed := false
+	isFirstIteration := true
+	for isFirstIteration || !isClosed {
+		isFirstIteration = false
+
+		var (
+			err       error
+			itemToken Token
+		)
+
+		itemToken, err = d.Token()
+		if err != nil {
+			return nil, fmt.Errorf("could not read token: %w", err)
+		}
+
+		if _, ok := itemToken.(*TokenEnd); ok {
+			isClosed = true
+
+			break
+		}
+
+		var item interface{}
+
+		item, err = d.decodeAny(itemToken)
+		if err != nil {
+			return nil, fmt.Errorf("could not decode token: %w", err)
+		}
+
+		dst = append(dst, item)
+	}
+
+	if !isClosed {
+		return nil, fmt.Errorf("unexpected end of list")
+	}
+
+	return dst, nil
+}
+
+func (d *Decoder) decodeAny(token Token) (interface{}, error) {
+	switch parsedToken := token.(type) {
+	case *TokenInteger:
+		return d.decodeInteger(parsedToken)
+	case *TokenString:
+		return d.decodeString(parsedToken)
+	case *TokenDictionaryStart:
+		return d.decodeDictionary(parsedToken)
+	case *TokenListStart:
+		return d.decodeList(parsedToken)
+	default:
+		return nil, fmt.Errorf("unexpected token: %#v", parsedToken)
+	}
+}
+
+func (d *Decoder) Decode() (interface{}, error) {
+	var (
+		err   error
+		token Token
+	)
+
+	token, err = d.Token()
+	if err != nil {
+		return nil, fmt.Errorf("could not read token: %w", err)
+	}
+
+	return d.decodeAny(token)
+}
+
 func NewDecoder(r io.Reader) *Decoder {
 	return NewDecoderWithOptions(r, DefaultDecoderOptions)
 }

@@ -257,3 +257,255 @@ func TestDecoder_Token_Zero(t *testing.T) {
 		t.Fatalf("unexpected token %#v; want bencode.TokenInteger", token)
 	}
 }
+
+func TestDecoder_Decode_IntegerZero(t *testing.T) {
+	rawData := bytes.NewBuffer([]byte("i0e"))
+
+	d := bencode.NewDecoder(rawData)
+
+	value, err := d.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := value.(int64), int64(0); got != want {
+		t.Errorf("value = %#v; want %#v", got, want)
+	}
+}
+
+func TestDecoder_Decode_IntegerOne(t *testing.T) {
+	rawData := bytes.NewBuffer([]byte("i1e"))
+
+	d := bencode.NewDecoder(rawData)
+
+	value, err := d.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := value.(int64), int64(1); got != want {
+		t.Errorf("value = %#v; want %#v", got, want)
+	}
+}
+
+func TestDecoder_Decode_IntegerMinusOne(t *testing.T) {
+	rawData := bytes.NewBuffer([]byte("i-1e"))
+
+	d := bencode.NewDecoder(rawData)
+
+	value, err := d.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := value.(int64), int64(-1); got != want {
+		t.Errorf("value = %#v; want %#v", got, want)
+	}
+}
+
+func TestDecoder_Decode_Integer256(t *testing.T) {
+	rawData := bytes.NewBuffer([]byte("i256e"))
+
+	d := bencode.NewDecoder(rawData)
+
+	value, err := d.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := value.(int64), int64(256); got != want {
+		t.Errorf("value = %#v; want %#v", got, want)
+	}
+}
+
+func TestDecoder_Decode_StringEmpty(t *testing.T) {
+	rawData := bytes.NewBuffer([]byte("0:"))
+
+	d := bencode.NewDecoder(rawData)
+
+	value, err := d.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := string(value.([]byte)), ""; got != want {
+		t.Errorf("string(value)) = %#v; want %#v", got, want)
+	}
+}
+
+func TestDecoder_Decode_String(t *testing.T) {
+	rawData := bytes.NewBuffer([]byte("1:a"))
+
+	d := bencode.NewDecoder(rawData)
+
+	value, err := d.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := string(value.([]byte)), "a"; got != want {
+		t.Errorf("string(value)) = %#v; want %#v", got, want)
+	}
+}
+
+func TestDecoder_Decode_Bytes(t *testing.T) {
+	tests := map[string][]byte{
+		"1:\x00":         []byte{'\x00'},
+		"3:\x00\x01\x02": []byte{'\x00', '\x01', '\x02'},
+	}
+
+	for input, wantOutput := range tests {
+		rawData := bytes.NewBuffer([]byte(input))
+
+		d := bencode.NewDecoder(rawData)
+
+		rawValue, err := d.Decode()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		value := rawValue.([]byte)
+
+		if got, want := len(value), len(wantOutput); got != want {
+			t.Errorf("len(Decode(%#v)) = %d; want %d", input, got, want)
+
+			continue
+		}
+
+		for i := 0; i < len(wantOutput); i++ {
+			if got, want := wantOutput[i], value[i]; got != want {
+				t.Errorf("Decode(%#v)[%d] = %#v; want %#v", input, i, got, want)
+
+				break
+			}
+		}
+	}
+}
+
+func TestDecoder_Decode_ListSimple(t *testing.T) {
+	tests := map[string][]interface{}{
+		"le":         []interface{}{},
+		"li0ee":      []interface{}{int64(0)},
+		"li1ee":      []interface{}{int64(1)},
+		"li1ei255ee": []interface{}{int64(1), int64(255)},
+	}
+
+	for input, wantSlice := range tests {
+		rawData := bytes.NewBuffer([]byte(input))
+
+		d := bencode.NewDecoder(rawData)
+
+		rawValue, err := d.Decode()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gotSlice := rawValue.([]interface{})
+
+		if got, want := len(gotSlice), len(wantSlice); got != want {
+			t.Errorf("len(Decode(%#v)) = %d; want %d", input, got, want)
+
+			continue
+		}
+
+		for i := 0; i < len(wantSlice); i++ {
+			if got, want := gotSlice[i], wantSlice[i]; got != want {
+				t.Errorf("Decode(%#v)[%d] = %#v; want %#v", input, i, got, want)
+			}
+		}
+	}
+}
+
+func keyDiff(left map[string]interface{}, right map[string]interface{}) (onlyLeft []string, onlyRight []string) {
+	for key, _ := range left {
+		if _, ok := right[key]; !ok {
+			onlyLeft = append(onlyLeft, key)
+		}
+	}
+
+	for key, _ := range right {
+		if _, ok := left[key]; !ok {
+			onlyRight = append(onlyRight, key)
+		}
+	}
+
+	return
+}
+
+func TestDecoder_Decode_DictionarySimple(t *testing.T) {
+	tests := map[string]map[string]interface{}{
+		"de": map[string]interface{}{},
+		"d0:i0ee": map[string]interface{}{
+			"": int64(0),
+		},
+		"d1:\x00i0ee": map[string]interface{}{
+			"\x00": int64(0),
+		},
+		"d3:onei1ee": map[string]interface{}{
+			"one": int64(1),
+		},
+	}
+
+	for input, wantMap := range tests {
+		rawData := bytes.NewBuffer([]byte(input))
+
+		d := bencode.NewDecoder(rawData)
+
+		rawValue, err := d.Decode()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gotMap := rawValue.(map[string]interface{})
+
+		onlyLeft, onlyRight := keyDiff(gotMap, wantMap)
+		if got, want := len(onlyLeft), 0; got != want {
+			t.Errorf("Decode(%#v) has unexpected keys: %#v", input, onlyLeft)
+		}
+
+		if got, want := len(onlyRight), 0; got != want {
+			t.Errorf("Decode(%#v) has missing keys: %#v", input, onlyRight)
+		}
+
+		for key, _ := range wantMap {
+			if got, want := gotMap[key], wantMap[key]; got != want {
+				t.Errorf("Decode(%#v)[%#v] = %#v; want %#v", input, key, got, want)
+			}
+		}
+	}
+}
+func TestDecoder_Decode_DictionaryNested(t *testing.T) {
+	// { "n": [255, -1, 0] }
+	input := "d1:nli255ei-1ei0eee"
+	rawData := bytes.NewBuffer([]byte(input))
+
+	d := bencode.NewDecoder(rawData)
+
+	rawValue, err := d.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotMap := rawValue.(map[string]interface{})
+	wantMap := map[string]interface{}{
+		"n": []interface{}{
+			int64(255),
+			int64(-1),
+			int64(0),
+		},
+	}
+
+	onlyLeft, onlyRight := keyDiff(gotMap, wantMap)
+	if got, want := len(onlyLeft), 0; got != want {
+		t.Errorf("Decode(%#v) has unexpected keys: %#v", input, onlyLeft)
+	}
+
+	if got, want := len(onlyRight), 0; got != want {
+		t.Errorf("Decode(%#v) has missing keys: %#v", input, onlyRight)
+	}
+
+	const key = "n"
+	gotList := gotMap[key].([]interface{})
+	wantList := wantMap[key].([]interface{})
+	for i, _ := range wantList {
+		if got, want := gotList[i], wantList[i]; got != want {
+			t.Errorf("Decode(%#v)[%#v][%d] = %#v; want %#v", input, key, i, got, want)
+		}
+	}
+}
